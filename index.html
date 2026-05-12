@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CarRent Manager Toolkit - Pro</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root { --primary: #2563eb; --success: #16a34a; --warning: #d97706; --danger: #ef4444; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: linear-gradient(135deg, #f8fafc 0%, #e0f2fe 100%);
+      padding: 15px;
+      min-height: 100vh;
+    }
+    .container { max-width: 1480px; margin: 0 auto; }
+    h1 { color: var(--primary); text-align:center; margin-bottom:8px; }
+    .subtitle { text-align:center; color:#64748b; margin-bottom:20px; }
+
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 8px; background: white; padding: 8px;
+      border-radius: 16px; box-shadow: 0 8px 25px rgba(0,0,0,0.1); margin-bottom: 20px;
+    }
+    .tab {
+      padding: 12px 22px; border-radius: 12px; cursor: pointer; font-weight: 600;
+      transition: all 0.3s; display: flex; align-items: center; gap: 8px;
+    }
+    .tab.active { background: var(--primary); color: white; }
+
+    .card {
+      background: white; border-radius: 20px; padding: 25px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.08); margin-bottom: 25px;
+    }
+
+    .controls { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items:center; }
+    input, select, button {
+      padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem;
+    }
+    .btn {
+      padding: 12px 20px; border: none; border-radius: 12px;
+      font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-success { background: var(--success); color: white; }
+    .btn-primary { background: var(--primary); color: white; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 14px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f8fafc; color: var(--primary); font-weight: 600; }
+    tr:hover { background: #f1f5f9; }
+
+    .stat-card {
+      background: #f8fafc; padding: 20px; border-radius: 16px; text-align: center;
+    }
+    .contract-item {
+      padding: 12px; border-left: 5px solid var(--primary); background: #f8fafc;
+      margin-bottom: 10px; border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1><i class="fas fa-car"></i> CarRent Manager Toolkit - Pro</h1>
+    <p class="subtitle">Quản lý cho thuê xe chuyên nghiệp</p>
+
+    <div class="tabs" id="tabs"></div>
+
+    <!-- DASHBOARD -->
+    <div id="tab1" class="card tab-content">
+      <h2><i class="fas fa-tachometer-alt"></i> Dashboard Tổng Quan</h2>
+      <div id="dashboardContent"></div>
+    </div>
+
+    <!-- KHÁCH HÀNG -->
+    <div id="tab2" class="card tab-content" style="display:none;">
+      <h2><i class="fas fa-users"></i> Quản Lý Khách Hàng</h2>
+      <div class="controls">
+        <input type="text" id="searchInput" placeholder="🔎 Tìm tên hoặc SĐT...">
+        <select id="sortFilter" onchange="renderCustomers()">
+          <option value="count">Số lần thuê</option>
+          <option value="revenue">Doanh thu cao nhất</option>
+          <option value="name">Tên A-Z</option>
+        </select>
+        <button onclick="exportCustomersExcel()" class="btn btn-success">
+          <i class="fas fa-file-excel"></i> Xuất Excel
+        </button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>#</th><th>Tên Khách Hàng</th><th>SĐT</th><th>Số lần thuê</th><th>Doanh thu</th><th>Lần thuê gần nhất</th></tr></thead>
+          <tbody id="customerBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- DOANH THU -->
+    <div id="tab3" class="card tab-content" style="display:none;">
+      <h2><i class="fas fa-chart-bar"></i> Phân Tích Doanh Thu</h2>
+      <div class="controls">
+        <select id="yearFilter" onchange="renderRevenue()"></select>
+        <select id="monthFilter" onchange="renderRevenue()">
+          <option value="">Tất cả tháng</option>
+        </select>
+        <button onclick="renderRevenue()" class="btn btn-primary">Xem</button>
+      </div>
+      <div id="revenueContent"></div>
+    </div>
+
+    <!-- LỊCH XE -->
+    <div id="tab4" class="card tab-content" style="display:none;">
+      <h2><i class="fas fa-calendar-alt"></i> Lịch Xe Đang Xử Lý</h2>
+      <div id="scheduleContent"></div>
+    </div>
+
+    <!-- DANH SÁCH XE -->
+    <div id="tab5" class="card tab-content" style="display:none;">
+      <h2><i class="fas fa-car-side"></i> Danh sách Xe</h2>
+      <div id="carContent"></div>
+    </div>
+  </div>
+
+<script>
+// ==================== CẤU HÌNH ====================
+const MASTER_KEY = "$2a$10$w8HuZEOH5lKslhwqq1vyc.pW/hNhvuAzCkMse5cgH4R9cX.n27ISO";
+const BIN_ID = "69cbd91436566621a866f521";
+
+let contracts = [], cars = [];
+
+// ==================== TẢI DỮ LIỆU ====================
+async function loadData() {
+    const loadingHTML = `
+        <div style="text-align:center; padding:60px 20px;">
+            <i class="fas fa-spinner fa-spin" style="font-size:42px; color:#2563eb; margin-bottom:15px;"></i>
+            <h3>Đang tải dữ liệu từ cloud...</h3>
+            <p style="color:#64748b;">Vui lòng chờ trong giây lát</p>
+        </div>
+    `;
+
+    // Hiển thị loading ngay lập tức
+    document.getElementById('dashboardContent').innerHTML = loadingHTML;
+
+    try {
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
+            headers: { 'X-Master-Key': MASTER_KEY }
+        });
+        
+        const data = await res.json();
+        
+        contracts = data.record?.contracts || data.contracts || [];
+        cars = data.record?.cars || data.cars || [];
+
+        renderAll();
+        
+    } catch(e) {
+        console.error(e);
+        document.getElementById('dashboardContent').innerHTML = `
+            <div style="text-align:center; padding:40px; color:#ef4444;">
+                <i class="fas fa-exclamation-triangle" style="font-size:36px;"></i>
+                <h3>Lỗi tải dữ liệu</h3>
+                <p>Vui lòng kiểm tra kết nối mạng hoặc thử tải lại trang.</p>
+                <button onclick="loadData()" class="btn btn-primary">Thử lại</button>
+            </div>
+        `;
+    }
+}
+
+// ==================== DASHBOARD ====================
+function renderDashboard() {
+  const activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất");
+  
+  let activeHTML = `<h3>Hợp đồng đang xử lý (${activeContracts.length})</h3>`;
+  if (activeContracts.length === 0) {
+    activeHTML += `<p>Không có hợp đồng đang xử lý.</p>`;
+  } else {
+    activeHTML += `<div style="max-height:450px; overflow-y:auto;">`;
+    activeContracts.forEach(c => {
+      activeHTML += `
+        <div class="contract-item">
+          <strong>${c.customer || 'Không tên'}</strong> — ${c.plate} 
+          <span style="color:#64748b">(${c.rentDate ? new Date(c.rentDate).toLocaleDateString('vi-VN') : '—'})</span>
+        </div>`;
+    });
+    activeHTML += `</div>`;
+  }
+
+  const totalRevenue = contracts
+    .filter(c => c.status === "Đã hoàn tất")
+    .reduce((sum, c) => sum + (c.frozenData?.totalAmount || 0), 0);
+
+  document.getElementById('dashboardContent').innerHTML = `
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap:20px;">
+      <div class="stat-card"><h3>Đang xử lý</h3><h1 style="color:#16a34a;">${activeContracts.length}</h1></div>
+      <div class="stat-card"><h3>Tổng doanh thu</h3><h1 style="color:#d97706;">${totalRevenue.toLocaleString('vi-VN')} ₫</h1></div>
+      <div class="stat-card"><h3>Tổng khách</h3><h1 style="color:#1e40af;">${new Set(contracts.map(c=>c.phone||c.customer)).size}</h1></div>
+      <div class="stat-card"><h3>Tổng xe</h3><h1 style="color:#7c3aed;">${cars.length}</h1></div>
+    </div>
+    <div style="margin-top:25px;">${activeHTML}</div>
+  `;
+}
+
+// ==================== KHÁCH HÀNG ====================
+function getCustomerData(sortBy = "count") {
+  const map = new Map();
+  contracts.forEach(c => {
+    const key = (c.phone || c.customer || '').trim();
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, {name: c.customer||"Không tên", phone: c.phone||"", count:0, revenue:0, lastRent:null});
+    }
+    const cust = map.get(key);
+    cust.count++;
+    cust.revenue += (c.frozenData?.totalAmount || 0);
+    if (c.rentDate) {
+      const d = new Date(c.rentDate);
+      if (!cust.lastRent || d > cust.lastRent) cust.lastRent = d;
+    }
+  });
+
+  let result = Array.from(map.values());
+  if (sortBy === "revenue") result.sort((a,b) => b.revenue - a.revenue);
+  else if (sortBy === "name") result.sort((a,b) => a.name.localeCompare(b.name));
+  else result.sort((a,b) => b.count - a.count);
+  return result;
+}
+
+function renderCustomers() {
+  const sortBy = document.getElementById('sortFilter').value;
+  const search = document.getElementById('searchInput').value.toLowerCase().trim();
+  let data = getCustomerData(sortBy);
+
+  if (search) {
+    data = data.filter(c => 
+      c.name.toLowerCase().includes(search) || (c.phone && c.phone.includes(search))
+    );
+  }
+
+  const tbody = document.getElementById('customerBody');
+  tbody.innerHTML = data.map((c, i) => {
+    const phone = c.phone ? c.phone.trim() : '';
+    const zaloLink = phone ? `https://zalo.me/${phone}` : '#';
+    
+    return `
+      <tr>
+        <td>${i+1}</td>
+        <td>
+          <a href="${zaloLink}" target="_blank" style="text-decoration:none; color:inherit;">
+            <strong style="cursor:pointer; color:var(--primary);">${c.name}</strong>
+          </a>
+        </td>
+        <td>
+          ${phone ? `
+            <a href="tel:${phone}" style="margin-right:8px; color:#16a34a; font-weight:600; text-decoration:none;">
+              📞 ${phone}
+            </a>
+            <a href="${zaloLink}" target="_blank" style="color:#0068ff; font-weight:600; text-decoration:none;">
+              💬 Zalo
+            </a>
+          ` : '—'}
+        </td>
+        <td style="text-align:center;font-weight:700;">${c.count}</td>
+        <td style="color:#16a34a;font-weight:700;">${c.revenue.toLocaleString('vi-VN')} ₫</td>
+        <td>${c.lastRent ? c.lastRent.toLocaleDateString('vi-VN') : '—'}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ==================== DOANH THU ====================
+function renderRevenue() {
+  const year = document.getElementById('yearFilter').value;
+  const month = document.getElementById('monthFilter').value;
+
+  let filtered = contracts.filter(c => c.status === "Đã hoàn tất" && c.rentDate);
+
+  if (year) {
+    filtered = filtered.filter(c => new Date(c.rentDate).getFullYear() == year);
+  }
+  if (month) {
+    filtered = filtered.filter(c => (new Date(c.rentDate).getMonth() + 1) == month);
+  }
+
+  const total = filtered.reduce((sum, c) => sum + (c.frozenData?.totalAmount || 0), 0);
+
+  // Doanh thu theo xe
+  const byCar = {};
+  filtered.forEach(c => {
+    byCar[c.plate] = (byCar[c.plate] || 0) + (c.frozenData?.totalAmount || 0);
+  });
+
+  let html = `
+    <h3>Tổng doanh thu: <strong style="color:#16a34a; font-size: 2rem;">${total.toLocaleString('vi-VN')} ₫</strong></h3>
+    <h4>Doanh thu theo xe</h4>
+    <table>
+      <thead><tr><th>Biển số xe</th><th>Doanh thu</th></tr></thead>
+      <tbody>
+  `;
+
+  Object.entries(byCar)
+    .sort((a,b) => b[1] - a[1])
+    .forEach(([plate, rev]) => {
+      html += `<tr><td><strong>${plate}</strong></td><td>${rev.toLocaleString('vi-VN')} ₫</td></tr>`;
+    });
+
+  html += `</tbody></table>`;
+  document.getElementById('revenueContent').innerHTML = html;
+}
+
+// ==================== LỊCH XE (Chỉ hợp đồng đang xử lý) ====================
+function renderSchedule() {
+  const activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất" && c.rentDate);
+
+  const schedule = {};
+  activeContracts.forEach(c => {
+    const date = c.rentDate.split('T')[0]; // YYYY-MM-DD
+    if (!schedule[date]) schedule[date] = [];
+    schedule[date].push({
+      plate: c.plate || 'N/A',
+      customer: c.customer || 'Không tên'
+    });
+  });
+
+  let html = `<table><thead><tr><th>Ngày</th><th>Xe đang bận</th><th>Khách hàng</th></tr></thead><tbody>`;
+
+  Object.entries(schedule)
+    .sort((a,b) => a[0].localeCompare(b[0])) // sắp xếp theo ngày
+    .forEach(([date, list]) => {
+      const plates = list.map(item => item.plate).join(', ');
+      const customers = list.map(item => item.customer).join(', ');
+      html += `<tr>
+        <td><strong>${date}</strong></td>
+        <td>${plates}</td>
+        <td>${customers}</td>
+      </tr>`;
+    });
+
+  html += `</tbody></table>`;
+
+  if (activeContracts.length === 0) {
+    html = `<p style="color:#64748b; text-align:center; padding:20px;">Không có xe nào đang có lịch xử lý.</p>`;
+  }
+
+  document.getElementById('scheduleContent').innerHTML = html;
+}
+
+// ==================== XE ====================
+function renderCars() {
+  let html = `<table><thead><tr><th>Loại xe</th><th>Biển số</th><th>Số lần thuê</th></tr></thead><tbody>`;
+  cars.forEach(car => {
+    const count = contracts.filter(c => c.plate === car.plate).length;
+    html += `<tr><td>${car.type || '—'}</td><td><strong>${car.plate}</strong></td><td>${count}</td></tr>`;
+  });
+  html += `</tbody></table>`;
+  document.getElementById('carContent').innerHTML = html;
+}
+
+// ==================== TẠO TABS ====================
+const tabNames = [
+  {id:1, icon:"fas fa-tachometer-alt", name:"Dashboard"},
+  {id:2, icon:"fas fa-users", name:"Khách Hàng"},
+  {id:3, icon:"fas fa-chart-bar", name:"Doanh Thu"},
+  {id:4, icon:"fas fa-calendar-alt", name:"Lịch Xe"},
+  {id:5, icon:"fas fa-car-side", name:"Xe"}
+];
+
+document.getElementById('tabs').innerHTML = tabNames.map(t => 
+  `<div class="tab ${t.id===1?'active':''}" onclick="switchTab(${t.id})"><i class="${t.icon}"></i> ${t.name}</div>`
+).join('');
+
+function switchTab(n) {
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.getElementById('tab'+n).style.display = 'block';
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i+1===n));
+}
+
+function renderAll() {
+  renderDashboard();
+  renderCustomers();
+  renderRevenue();
+  renderSchedule();
+  renderCars();
+
+  // Populate year filter
+  const years = [...new Set(contracts
+    .filter(c => c.rentDate)
+    .map(c => new Date(c.rentDate).getFullYear())
+  )].sort((a,b) => b - a);
+
+  const yearSelect = document.getElementById('yearFilter');
+  yearSelect.innerHTML = `<option value="">Tất cả năm</option>` + 
+    years.map(y => `<option value="${y}">${y}</option>`).join('');
+
+  // Populate months
+  const monthSelect = document.getElementById('monthFilter');
+  monthSelect.innerHTML = `<option value="">Tất cả tháng</option>` +
+    Array.from({length:12}, (_,i) => {
+      const m = i+1;
+      return `<option value="${m}">${m.toString().padStart(2,'0')}</option>`;
+    }).join('');
+}
+// ==================== XUẤT EXCEL KHÁCH HÀNG ====================
+function exportCustomersExcel() {
+    const data = getCustomerData("count"); // lấy dữ liệu theo thứ tự mặc định
+
+    // Chuẩn bị dữ liệu cho Excel
+    const excelData = data.map((c, i) => ({
+        "STT": i + 1,
+        "Tên Khách Hàng": c.name,
+        "Số Điện Thoại": c.phone,
+        "Số lần thuê": c.count,
+        "Tổng doanh thu (₫)": c.revenue,
+        "Lần thuê gần nhất": c.lastRent ? c.lastRent.toLocaleDateString('vi-VN') : ''
+    }));
+
+    // Tạo workbook
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "KhachHang");
+
+    // Tự động điều chỉnh độ rộng cột
+    const colWidths = [
+        {wch: 6}, {wch: 30}, {wch: 15}, 
+        {wch: 12}, {wch: 20}, {wch: 15}
+    ];
+    ws['!cols'] = colWidths;
+
+    // Xuất file
+    XLSX.writeFile(wb, `KhachHang_CarRent_${new Date().toISOString().slice(0,10)}.xlsx`);
+
+    // Thông báo
+    const notif = document.createElement('div');
+    notif.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#16a34a;color:white;padding:12px 20px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.2);z-index:9999;';
+    notif.innerHTML = '✅ Đã xuất file Excel thành công!';
+    document.body.appendChild(notif);
+    setTimeout(() => notif.remove(), 2500);
+}
+
+// Khởi động
+window.onload = loadData;
+document.getElementById('searchInput').addEventListener('input', renderCustomers);
+</script>
+</body>
+</html>
