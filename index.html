@@ -57,7 +57,7 @@
       padding: 12px; border-left: 5px solid var(--primary); background: #f8fafc;
       margin-bottom: 10px; border-radius: 8px;
     }
-        /* Floating Action Button */
+    /* Floating Action Button */
     .fab-btn {
       position: fixed;
       bottom: 25px;
@@ -88,7 +88,6 @@
       font-size: 1.3rem;
     }
 
-    /* Responsive cho mobile */
     @media (max-width: 768px) {
       .fab-btn {
         bottom: 20px;
@@ -158,7 +157,6 @@
   </div>
 </div>
 
-
     <!-- DOANH THU -->
     <div id="tab3" class="card tab-content" style="display:none;">
       <h2><i class="fas fa-chart-bar"></i> Phân Tích Doanh Thu</h2>
@@ -187,33 +185,29 @@
 
 <script>
 // ==================== CẤU HÌNH ====================
-const MASTER_KEY = "$2a$10$w8HuZEOH5lKslhwqq1vyc.pW/hNhvuAzCkMse5cgH4R9cX.n27ISO";
-const BIN_ID = "69cbd91436566621a866f521";
-
 let contracts = [], cars = [];
 
-// ==================== TẢI DỮ LIỆU ====================
+// ==================== TẢI DỮ LIỆU TỪ FIREBASE ====================
 async function loadData() {
     const loadingHTML = `
         <div style="text-align:center; padding:60px 20px;">
             <i class="fas fa-spinner fa-spin" style="font-size:42px; color:#2563eb; margin-bottom:15px;"></i>
-            <h3>Đang tải dữ liệu từ cloud...</h3>
+            <h3>Đang tải dữ liệu từ Firebase...</h3>
             <p style="color:#64748b;">Vui lòng chờ trong giây lát</p>
         </div>
     `;
 
-    // Hiển thị loading ngay lập tức
     document.getElementById('dashboardContent').innerHTML = loadingHTML;
 
     try {
-        const res = await fetch(`https://api.jsonbin.io/v3/b/${BIN_ID}`, {
-            headers: { 'X-Master-Key': MASTER_KEY }
-        });
+        const res = await fetch('https://carrent-2026-default-rtdb.asia-southeast1.firebasedatabase.app/.json');
+        
+        if (!res.ok) throw new Error('Không thể kết nối với Firebase');
         
         const data = await res.json();
         
-        contracts = data.record?.contracts || data.contracts || [];
-        cars = data.record?.cars || data.cars || [];
+        contracts = data.contracts || [];
+        cars = data.cars || [];
 
         renderAll();
         
@@ -222,8 +216,8 @@ async function loadData() {
         document.getElementById('dashboardContent').innerHTML = `
             <div style="text-align:center; padding:40px; color:#ef4444;">
                 <i class="fas fa-exclamation-triangle" style="font-size:36px;"></i>
-                <h3>Lỗi tải dữ liệu</h3>
-                <p>Vui lòng kiểm tra kết nối mạng hoặc thử tải lại trang.</p>
+                <h3>Lỗi tải dữ liệu từ Firebase</h3>
+                <p>Kiểm tra kết nối mạng hoặc quy tắc bảo mật của Firebase.</p>
                 <button onclick="loadData()" class="btn btn-primary">Thử lại</button>
             </div>
         `;
@@ -334,6 +328,7 @@ function renderCustomers() {
     `;
   }).join('');
 }
+
 // ==================== DOANH THU ====================
 function renderRevenue() {
   const year = document.getElementById('yearFilter').value;
@@ -350,7 +345,6 @@ function renderRevenue() {
 
   const total = filtered.reduce((sum, c) => sum + (c.frozenData?.totalAmount || 0), 0);
 
-  // Doanh thu theo xe
   const byCar = {};
   filtered.forEach(c => {
     byCar[c.plate] = (byCar[c.plate] || 0) + (c.frozenData?.totalAmount || 0);
@@ -374,13 +368,13 @@ function renderRevenue() {
   document.getElementById('revenueContent').innerHTML = html;
 }
 
-// ==================== LỊCH XE (Chỉ hợp đồng đang xử lý) ====================
+// ==================== LỊCH XE ====================
 function renderSchedule() {
   const activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất" && c.rentDate);
 
   const schedule = {};
   activeContracts.forEach(c => {
-    const date = c.rentDate.split('T')[0]; // YYYY-MM-DD
+    const date = c.rentDate.split('T')[0];
     if (!schedule[date]) schedule[date] = [];
     schedule[date].push({
       plate: c.plate || 'N/A',
@@ -391,7 +385,7 @@ function renderSchedule() {
   let html = `<table><thead><tr><th>Ngày</th><th>Xe đang bận</th><th>Khách hàng</th></tr></thead><tbody>`;
 
   Object.entries(schedule)
-    .sort((a,b) => a[0].localeCompare(b[0])) // sắp xếp theo ngày
+    .sort((a,b) => a[0].localeCompare(b[0]))
     .forEach(([date, list]) => {
       const plates = list.map(item => item.plate).join(', ');
       const customers = list.map(item => item.customer).join(', ');
@@ -411,7 +405,7 @@ function renderSchedule() {
   document.getElementById('scheduleContent').innerHTML = html;
 }
 
-// ==================== XE ====================
+// ==================== DANH SÁCH XE ====================
 function renderCars() {
   let html = `<table><thead><tr><th>Loại xe</th><th>Biển số</th><th>Số lần thuê</th></tr></thead><tbody>`;
   cars.forEach(car => {
@@ -466,11 +460,11 @@ function renderAll() {
       return `<option value="${m}">${m.toString().padStart(2,'0')}</option>`;
     }).join('');
 }
-// ==================== XUẤT EXCEL KHÁCH HÀNG ====================
-function exportCustomersExcel() {
-    const data = getCustomerData("count"); // lấy dữ liệu theo thứ tự mặc định
 
-    // Chuẩn bị dữ liệu cho Excel
+// ==================== XUẤT EXCEL ====================
+function exportCustomersExcel() {
+    const data = getCustomerData("count");
+
     const excelData = data.map((c, i) => ({
         "STT": i + 1,
         "Tên Khách Hàng": c.name,
@@ -480,22 +474,18 @@ function exportCustomersExcel() {
         "Lần thuê gần nhất": c.lastRent ? c.lastRent.toLocaleDateString('vi-VN') : ''
     }));
 
-    // Tạo workbook
     const ws = XLSX.utils.json_to_sheet(excelData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "KhachHang");
 
-    // Tự động điều chỉnh độ rộng cột
     const colWidths = [
         {wch: 6}, {wch: 30}, {wch: 15}, 
         {wch: 12}, {wch: 20}, {wch: 15}
     ];
     ws['!cols'] = colWidths;
 
-    // Xuất file
     XLSX.writeFile(wb, `KhachHang_CarRent_${new Date().toISOString().slice(0,10)}.xlsx`);
 
-    // Thông báo
     const notif = document.createElement('div');
     notif.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#16a34a;color:white;padding:12px 20px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.2);z-index:9999;';
     notif.innerHTML = '✅ Đã xuất file Excel thành công!';
@@ -503,19 +493,18 @@ function exportCustomersExcel() {
     setTimeout(() => notif.remove(), 2500);
 }
 
-// ==================== HIỂN THỊ LỊCH SỬ KHÁCH HÀNG ====================
+// ==================== LỊCH SỬ KHÁCH HÀNG ====================
 function showCustomerHistory(key) {
   const modal = document.getElementById('historyModal');
   const nameEl = document.getElementById('modalCustomerName');
   const contentEl = document.getElementById('modalContent');
 
-  // Tìm tất cả hợp đồng của khách
   const customerContracts = contracts
     .filter(c => {
       const customerKey = (c.phone || c.customer || '').trim();
       return customerKey === key;
     })
-    .sort((a, b) => new Date(b.rentDate) - new Date(a.rentDate)); // mới nhất lên trên
+    .sort((a, b) => new Date(b.rentDate) - new Date(a.rentDate));
 
   if (customerContracts.length === 0) {
     contentEl.innerHTML = `<p style="text-align:center; color:#64748b; padding:40px;">Không tìm thấy lịch sử thuê.</p>`;
@@ -568,7 +557,6 @@ function closeModal() {
   document.getElementById('historyModal').style.display = 'none';
 }
 
-// Đóng modal khi click ra ngoài
 document.getElementById('historyModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
