@@ -273,9 +273,34 @@ function getCustomerData(sortBy = "count") {
   });
 
   let result = Array.from(map.values());
-  if (sortBy === "revenue") result.sort((a,b) => b.revenue - a.revenue);
-  else if (sortBy === "name") result.sort((a,b) => a.name.localeCompare(b.name));
-  else result.sort((a,b) => b.count - a.count);
+
+  if (sortBy === "revenue") {
+    result.sort((a,b) => b.revenue - a.revenue);
+  }
+  else if (sortBy === "name") {
+    // Sắp xếp theo TÊN CHÍNH (phần cuối cùng của tên) - kiểu Việt Nam
+    result.sort((a, b) => {
+      const getLastName = (fullName) => {
+        if (!fullName) return "";
+        const parts = fullName.trim().split(/\s+/);
+        return parts[parts.length - 1].toLowerCase(); // Lấy từ cuối cùng
+      };
+      
+      const lastA = getLastName(a.name);
+      const lastB = getLastName(b.name);
+      
+      // Nếu cùng tên chính thì so sánh full name
+      if (lastA === lastB) {
+        return a.name.localeCompare(b.name, 'vi-VN');
+      }
+      
+      return lastA.localeCompare(lastB, 'vi-VN');
+    });
+  }
+  else {
+    result.sort((a,b) => b.count - a.count);
+  }
+
   return result;
 }
 
