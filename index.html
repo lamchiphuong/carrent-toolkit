@@ -390,13 +390,23 @@ function renderSchedule() {
   const activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất" && c.rentDate);
 
   const schedule = {};
-  activeContracts.forEach(c => {
-    const rawDate = c.rentDate.split('T')[0];
-    const [year, month, day] = rawDate.split('-');
-    const date = `${day}-${month}-${year}`;
 
-    if (!schedule[date]) schedule[date] = [];
-    schedule[date].push({
+  activeContracts.forEach(c => {
+    const rawDate = c.rentDate.split('T')[0]; // YYYY-MM-DD
+    const [year, month, day] = rawDate.split('-');
+    
+    // Dùng YYYY-MM-DD làm key để sắp xếp đúng thứ tự thời gian
+    const sortKey = rawDate; 
+    const displayDate = `${day}-${month}-${year}`;
+
+    if (!schedule[sortKey]) {
+      schedule[sortKey] = {
+        display: displayDate,
+        items: []
+      };
+    }
+
+    schedule[sortKey].items.push({
       plate: c.plate || 'N/A',
       customer: c.customer || 'Không tên'
     });
@@ -404,13 +414,15 @@ function renderSchedule() {
 
   let html = `<table><thead><tr><th>Ngày</th><th>Xe đang bận</th><th>Khách hàng</th></tr></thead><tbody>`;
 
+  // Sắp xếp theo sortKey (YYYY-MM-DD) - đúng thứ tự thời gian
   Object.entries(schedule)
-    .sort((a,b) => a[0].localeCompare(b[0]))
-    .forEach(([date, list]) => {
-      const plates = list.map(item => item.plate).join(', ');
-      const customers = list.map(item => item.customer).join(', ');
+    .sort((a, b) => a[0].localeCompare(b[0]))  // Sắp xếp theo YYYY-MM-DD
+    .forEach(([sortKey, data]) => {
+      const plates = data.items.map(item => item.plate).join(', ');
+      const customers = data.items.map(item => item.customer).join(', ');
+      
       html += `<tr>
-        <td><strong>${date}</strong></td>
+        <td><strong>${data.display}</strong></td>
         <td>${plates}</td>
         <td>${customers}</td>
       </tr>`;
