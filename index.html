@@ -6,6 +6,7 @@
   <title>CarRent Manager Toolkit - Pro</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     :root { --primary: #2563eb; --success: #16a34a; --warning: #d97706; --danger: #ef4444; }
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -58,7 +59,6 @@
       margin-bottom: 10px; border-radius: 8px;
     }
 
-    /* Floating Action Button */
     .fab-btn {
       position: fixed;
       bottom: 25px;
@@ -93,11 +93,12 @@
         font-size: 0.95rem;
       }
     }
+
+    #revenueChart { margin: 25px 0 30px 0; }
   </style>
 </head>
 <body>
 <div class="container">
-  <!-- Nút Refresh nổi -->
   <button onclick="loadData()" id="fabRefresh" class="fab-btn">
     <i class="fas fa-sync-alt"></i>
     <span>Refresh</span>
@@ -136,7 +137,7 @@
     </div>
   </div>
 
-  <!-- CUSTOMER HISTORY MODAL -->
+  <!-- HISTORY MODAL -->
   <div id="historyModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
     <div style="background:white; border-radius:20px; width:90%; max-width:820px; max-height:85vh; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.3);">
       <div style="padding:20px 25px; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
@@ -158,8 +159,12 @@
       <select id="monthFilter" onchange="renderRevenue()">
         <option value="">Tất cả tháng</option>
       </select>
+      <select id="carFilter" onchange="renderRevenue()">
+        <option value="">Tất cả xe</option>
+      </select>
       <button onclick="renderRevenue()" class="btn btn-primary">Xem</button>
     </div>
+    <canvas id="revenueChart" height="130"></canvas>
     <div id="revenueContent"></div>
   </div>
 
@@ -180,7 +185,7 @@
 // ==================== CẤU HÌNH FIREBASE ====================
 const FIREBASE_URL = "https://carrent-2026-default-rtdb.asia-southeast1.firebasedatabase.app/";
 
-let contracts = [], cars = [];
+let contracts = [], cars = [], revenueChartInstance = null;
 
 // ==================== TẢI DỮ LIỆU TỪ FIREBASE ====================
 async function loadData() {
@@ -220,10 +225,13 @@ async function loadData() {
     }
 }
 
-// ==================== DASHBOARD ====================
+// ==================== DASHBOARD (ĐÃ SỬA - sắp xếp ngày tăng dần) ====================
 function renderDashboard() {
-  const activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất");
+  let activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất");
   
+  // Sắp xếp theo ngày thuê tăng dần (cũ nhất lên trên)
+  activeContracts.sort((a, b) => new Date(a.rentDate || 0) - new Date(b.rentDate || 0));
+
   let activeHTML = `<h3>Hợp đồng đang xử lý (${activeContracts.length})</h3>`;
   if (activeContracts.length === 0) {
     activeHTML += `<p>Không có hợp đồng đang xử lý.</p>`;
@@ -232,7 +240,7 @@ function renderDashboard() {
     activeContracts.forEach(c => {
       activeHTML += `
         <div class="contract-item">
-          <strong>${c.customer || 'Không tên'}</strong> — ${c.plate} 
+          <strong>${c.customer || 'Không tên'}</strong> — ${c.plate || '—'} 
           <span style="color:#64748b">(${c.rentDate ? new Date(c.rentDate).toLocaleDateString('vi-VN') : '—'})</span>
         </div>`;
     });
@@ -254,7 +262,7 @@ function renderDashboard() {
   `;
 }
 
-// ==================== KHÁCH HÀNG ====================
+// ==================== KHÁCH HÀNG (GIỮ NGUYÊN) ====================
 function getCustomerData(sortBy = "count") {
   const map = new Map();
   contracts.forEach(c => {
@@ -278,18 +286,16 @@ function getCustomerData(sortBy = "count") {
     result.sort((a,b) => b.revenue - a.revenue);
   }
   else if (sortBy === "name") {
-    // Sắp xếp theo TÊN CHÍNH (phần cuối cùng của tên) - kiểu Việt Nam
     result.sort((a, b) => {
       const getLastName = (fullName) => {
         if (!fullName) return "";
         const parts = fullName.trim().split(/\s+/);
-        return parts[parts.length - 1].toLowerCase(); // Lấy từ cuối cùng
+        return parts[parts.length - 1].toLowerCase();
       };
       
       const lastA = getLastName(a.name);
       const lastB = getLastName(b.name);
       
-      // Nếu cùng tên chính thì so sánh full name
       if (lastA === lastB) {
         return a.name.localeCompare(b.name, 'vi-VN');
       }
@@ -350,39 +356,119 @@ function renderCustomers() {
   }).join('');
 }
 
-// ==================== DOANH THU ====================
+// ==================== DOANH THU (ĐÃ CẬP NHẬT ĐẦY ĐỦ) ====================
 function renderRevenue() {
   const year = document.getElementById('yearFilter').value;
   const month = document.getElementById('monthFilter').value;
+  const selectedCar = document.getElementById('carFilter').value;
 
   let filtered = contracts.filter(c => c.status === "Đã hoàn tất" && c.rentDate);
 
   if (year) filtered = filtered.filter(c => new Date(c.rentDate).getFullYear() == year);
   if (month) filtered = filtered.filter(c => (new Date(c.rentDate).getMonth() + 1) == month);
+  if (selectedCar) filtered = filtered.filter(c => c.plate === selectedCar);
 
   const total = filtered.reduce((sum, c) => sum + (c.frozenData?.totalAmount || 0), 0);
 
-  const byCar = {};
-  filtered.forEach(c => {
-    byCar[c.plate] = (byCar[c.plate] || 0) + (c.frozenData?.totalAmount || 0);
-  });
+  // Biểu đồ
+  if (selectedCar) {
+    renderRevenueChartByCar(filtered, selectedCar);
+  } else {
+    renderRevenueChartTotal(filtered, year);
+  }
 
   let html = `
-    <h3>Tổng doanh thu: <strong style="color:#16a34a; font-size: 2rem;">${total.toLocaleString('vi-VN')} ₫</strong></h3>
-    <h4>Doanh thu theo xe</h4>
-    <table>
-      <thead><tr><th>Biển số xe</th><th>Doanh thu</th></tr></thead>
-      <tbody>
+    <h3>Tổng doanh thu: <strong style="color:#16a34a; font-size: 2.2rem;">${total.toLocaleString('vi-VN')} ₫</strong></h3>
   `;
 
-  Object.entries(byCar)
-    .sort((a,b) => b[1] - a[1])
-    .forEach(([plate, rev]) => {
-      html += `<tr><td><strong>${plate}</strong></td><td>${rev.toLocaleString('vi-VN')} ₫</td></tr>`;
+  if (selectedCar) {
+    html += `<h4>Chi tiết xe ${selectedCar}</h4>`;
+    html += `<table><thead><tr><th>Ngày</th><th>Khách hàng</th><th>Loại xe</th><th>Số tiền</th></tr></thead><tbody>`;
+    filtered.sort((a,b) => new Date(b.rentDate) - new Date(a.rentDate)).forEach(c => {
+      html += `<tr>
+        <td>${new Date(c.rentDate).toLocaleDateString('vi-VN')}</td>
+        <td>${c.customer || '—'}</td>
+        <td>${c.carType || c.type || '—'}</td>
+        <td style="color:#16a34a;font-weight:700;">${(c.frozenData?.totalAmount||0).toLocaleString('vi-VN')} ₫</td>
+      </tr>`;
     });
-
+  } else {
+    html += `<h4>Doanh thu theo xe</h4>`;
+    html += `<table><thead><tr><th>Biển số xe</th><th>Loại xe</th><th>Doanh thu</th></tr></thead><tbody>`;
+    const byCar = {};
+    filtered.forEach(c => {
+      const plate = c.plate || 'Không rõ';
+      if (!byCar[plate]) byCar[plate] = {revenue: 0, type: c.carType || c.type || '—'};
+      byCar[plate].revenue += (c.frozenData?.totalAmount || 0);
+    });
+    Object.entries(byCar).sort((a,b) => b[1].revenue - a[1].revenue).forEach(([plate, data]) => {
+      html += `<tr><td><strong>${plate}</strong></td><td>${data.type}</td><td style="color:#16a34a;font-weight:700;">${data.revenue.toLocaleString('vi-VN')} ₫</td></tr>`;
+    });
+  }
   html += `</tbody></table>`;
   document.getElementById('revenueContent').innerHTML = html;
+}
+
+function renderRevenueChartTotal(filtered, year) {
+  if (revenueChartInstance) revenueChartInstance.destroy();
+  const byMonth = Array(12).fill(0);
+  filtered.forEach(c => {
+    const m = new Date(c.rentDate).getMonth();
+    byMonth[m] += c.frozenData?.totalAmount || 0;
+  });
+
+  revenueChartInstance = new Chart(document.getElementById('revenueChart'), {
+    type: 'bar',
+    data: {
+      labels: ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'],
+      datasets: [{
+        label: year ? `Doanh thu năm ${year}` : 'Tổng doanh thu',
+        data: byMonth,
+        backgroundColor: '#2563eb',
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => v.toLocaleString('vi-VN') + ' ₫' }
+        }
+      }
+    }
+  });
+}
+
+function renderRevenueChartByCar(filtered, car) {
+  if (revenueChartInstance) revenueChartInstance.destroy();
+  const byMonth = Array(12).fill(0);
+  filtered.forEach(c => {
+    const m = new Date(c.rentDate).getMonth();
+    byMonth[m] += c.frozenData?.totalAmount || 0;
+  });
+
+  revenueChartInstance = new Chart(document.getElementById('revenueChart'), {
+    type: 'bar',
+    data: {
+      labels: ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'],
+      datasets: [{
+        label: `Xe ${car}`,
+        data: byMonth,
+        backgroundColor: '#16a34a',
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { callback: v => v.toLocaleString('vi-VN') + ' ₫' }
+        }
+      }
+    }
+  });
 }
 
 // ==================== LỊCH XE ====================
@@ -392,18 +478,13 @@ function renderSchedule() {
   const schedule = {};
 
   activeContracts.forEach(c => {
-    const rawDate = c.rentDate.split('T')[0]; // YYYY-MM-DD
+    const rawDate = c.rentDate.split('T')[0];
     const [year, month, day] = rawDate.split('-');
-    
-    // Dùng YYYY-MM-DD làm key để sắp xếp đúng thứ tự thời gian
     const sortKey = rawDate; 
     const displayDate = `${day}-${month}-${year}`;
 
     if (!schedule[sortKey]) {
-      schedule[sortKey] = {
-        display: displayDate,
-        items: []
-      };
+      schedule[sortKey] = { display: displayDate, items: [] };
     }
 
     schedule[sortKey].items.push({
@@ -414,13 +495,11 @@ function renderSchedule() {
 
   let html = `<table><thead><tr><th>Ngày</th><th>Xe đang bận</th><th>Khách hàng</th></tr></thead><tbody>`;
 
-  // Sắp xếp theo sortKey (YYYY-MM-DD) - đúng thứ tự thời gian
   Object.entries(schedule)
-    .sort((a, b) => a[0].localeCompare(b[0]))  // Sắp xếp theo YYYY-MM-DD
+    .sort((a, b) => a[0].localeCompare(b[0]))
     .forEach(([sortKey, data]) => {
       const plates = data.items.map(item => item.plate).join(', ');
       const customers = data.items.map(item => item.customer).join(', ');
-      
       html += `<tr>
         <td><strong>${data.display}</strong></td>
         <td>${plates}</td>
@@ -491,6 +570,11 @@ function renderAll() {
       const m = i+1;
       return `<option value="${m}">${m.toString().padStart(2,'0')}</option>`;
     }).join('');
+
+  // Populate car filter
+  const carSelect = document.getElementById('carFilter');
+  carSelect.innerHTML = `<option value="">Tất cả xe</option>` +
+    cars.map(car => `<option value="${car.plate}">${car.plate} - ${car.type || ''}</option>`).join('');
 }
 
 // ==================== XUẤT EXCEL ====================
