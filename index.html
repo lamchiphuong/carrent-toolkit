@@ -511,45 +511,66 @@ function renderRevenueChartByCar(filtered, car) {
 }
 
 // ==================== LỊCH XE ====================
+<!-- ==================== LỊCH XE (ĐÃ SỬA - hỗ trợ nhiều ngày) ==================== -->
 function renderSchedule() {
   const activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất" && c.rentDate);
 
-  const schedule = {};
+  const schedule = {}; // key: YYYY-MM-DD
 
   activeContracts.forEach(c => {
-    const rawDate = c.rentDate.split('T')[0];
-    const [year, month, day] = rawDate.split('-');
-    const sortKey = rawDate; 
-    const displayDate = `${day}-${month}-${year}`;
+    if (!c.rentDate) return;
 
-    if (!schedule[sortKey]) {
-      schedule[sortKey] = { display: displayDate, items: [] };
+    const startDate = new Date(c.rentDate);
+    let endDate = c.returnDate ? new Date(c.returnDate) : startDate; // fallback nếu không có returnDate
+
+    // Đảm bảo endDate >= startDate
+    if (endDate < startDate) endDate = startDate;
+
+    const current = new Date(startDate);
+    
+    while (current <= endDate) {
+      const dateStr = current.toISOString().split('T')[0]; // YYYY-MM-DD
+      const [year, month, day] = dateStr.split('-');
+      const displayDate = `${day}-${month}-${year}`;
+
+      if (!schedule[dateStr]) {
+        schedule[dateStr] = { display: displayDate, items: [] };
+      }
+
+      schedule[dateStr].items.push({
+        plate: c.plate || 'N/A',
+        customer: c.customer || 'Không tên',
+        // Có thể thêm thông tin ngày thuê/trả nếu cần
+        contractInfo: `${c.customer || '—'} (${c.plate || '—'})`
+      });
+
+      // Tăng 1 ngày
+      current.setDate(current.getDate() + 1);
     }
-
-    schedule[sortKey].items.push({
-      plate: c.plate || 'N/A',
-      customer: c.customer || 'Không tên'
-    });
   });
 
   let html = `<table><thead><tr><th>Ngày</th><th>Xe đang bận</th><th>Khách hàng</th></tr></thead><tbody>`;
 
   Object.entries(schedule)
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort((a, b) => a[0].localeCompare(b[0])) // sắp xếp theo ngày
     .forEach(([sortKey, data]) => {
-      const plates = data.items.map(item => item.plate).join(', ');
-      const customers = data.items.map(item => item.customer).join(', ');
+      // Loại bỏ trùng lặp nếu cùng xe/khách trong 1 ngày (do nhiều hợp đồng)
+      const uniquePlates = [...new Set(data.items.map(item => item.plate))];
+      const uniqueCustomers = [...new Set(data.items.map(item => item.customer))];
+
       html += `<tr>
         <td><strong>${data.display}</strong></td>
-        <td>${plates}</td>
-        <td>${customers}</td>
+        <td>${uniquePlates.join(', ')}</td>
+        <td>${uniqueCustomers.join(', ')}</td>
       </tr>`;
     });
 
   html += `</tbody></table>`;
 
   if (activeContracts.length === 0) {
-    html = `<p style="color:#64748b; text-align:center; padding:20px;">Không có xe nào đang có lịch xử lý.</p>`;
+    html = `<p style="color:#64748b; text-align:center; padding:40px;">Không có xe nào đang có lịch xử lý.</p>`;
+  } else if (Object.keys(schedule).length === 0) {
+    html = `<p style="color:#64748b; text-align:center; padding:40px;">Không có dữ liệu lịch xe.</p>`;
   }
 
   document.getElementById('scheduleContent').innerHTML = html;
