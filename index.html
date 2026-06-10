@@ -668,15 +668,19 @@ function exportCustomersExcel() {
     setTimeout(() => notif.remove(), 2500);
 }
 
-// ==================== LỊCH SỬ KHÁCH HÀNG ====================
+// ==================== LỊCH SỬ KHÁCH HÀNG (Cập nhật >= 2 ngày) ====================
 function showCustomerHistory(key) {
   const modal = document.getElementById('historyModal');
   const nameEl = document.getElementById('modalCustomerName');
   const contentEl = document.getElementById('modalContent');
 
   const customerContracts = contracts
-    .filter(c => (c.phone || c.customer || '').trim() === key)
-    .sort((a, b) => new Date(b.rentDate) - new Date(a.rentDate));
+    .filter(c => {
+      const phoneMatch = c.phone && (c.phone || '').trim() === key;
+      const nameMatch = !c.phone && (c.customer || '').trim() === key;
+      return phoneMatch || nameMatch;
+    })
+    .sort((a, b) => new Date(b.rentDate || 0) - new Date(a.rentDate || 0));
 
   if (customerContracts.length === 0) {
     contentEl.innerHTML = `<p style="text-align:center; color:#64748b; padding:40px;">Không tìm thấy lịch sử thuê.</p>`;
@@ -685,13 +689,13 @@ function showCustomerHistory(key) {
     return;
   }
 
-  const customerName = customerContracts[0].customer || "Khách hàng";
+  const customerName = customerContracts[0].customer || customerContracts[0].frozenData?.customer || "Khách hàng";
 
   let html = `
     <table style="width:100%;">
       <thead>
         <tr>
-          <th>Ngày thuê</th>
+          <th>Thời gian thuê</th>
           <th>Loại xe</th>
           <th>Biển số</th>
           <th>Số tiền</th>
@@ -702,16 +706,40 @@ function showCustomerHistory(key) {
   `;
 
   customerContracts.forEach(c => {
-    const amount = c.frozenData?.totalAmount || 0;
-    const date = c.rentDate ? new Date(c.rentDate).toLocaleDateString('vi-VN', { 
-      year: 'numeric', month: '2-digit', day: '2-digit'
-    }) : '—';
+    const data = (c.status === "Đã hoàn tất" && c.frozenData) ? c.frozenData : c;
+    const amount = data.totalAmount || data.frozenData?.totalAmount || 0;
+
+    // === HIỂN THỊ NGÀY THUÊ - NGÀY TRẢ (>= 2 ngày) ===
+    let dateDisplay = '—';
+    if (data.rentDate) {
+      const start = new Date(data.rentDate);
+      const startStr = start.toLocaleDateString('vi-VN', { 
+        year: 'numeric', month: '2-digit', day: '2-digit' 
+      });
+
+      if (data.returnDate) {
+        const end = new Date(data.returnDate);
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays >= 1) {
+          const endStr = end.toLocaleDateString('vi-VN', { 
+            year: 'numeric', month: '2-digit', day: '2-digit' 
+          });
+          dateDisplay = `<strong>${startStr}</strong> <small style="color:#64748b;"> - </small><strong> ${endStr} </strong>`;
+        } else {
+          dateDisplay = `<strong>${startStr}</strong>`;
+        }
+      } else {
+        dateDisplay = `<strong>${startStr}</strong>`;
+      }
+    }
 
     html += `
       <tr>
-        <td><strong>${date}</strong></td>
-        <td>${c.carType || c.type || '—'}</td>
-        <td><strong>${c.plate || '—'}</strong></td>
+        <td>${dateDisplay}</td>
+        <td>${data.carType || data.type || '—'}</td>
+        <td><strong>${data.plate || '—'}</strong></td>
         <td style="color:#16a34a; font-weight:700;">${amount.toLocaleString('vi-VN')} ₫</td>
         <td><span style="padding:4px 10px; border-radius:9999px; font-size:0.9rem; background:${c.status === 'Đã hoàn tất' ? '#dcfce7' : '#fef3c7'}; color:${c.status === 'Đã hoàn tất' ? '#166534' : '#b45309'};">${c.status || 'Đang xử lý'}</span></td>
       </tr>
