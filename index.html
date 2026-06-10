@@ -95,6 +95,16 @@
     }
 
     #revenueChart { margin: 25px 0 30px 0; }
+
+        /* style nút sửa khách hàng */
+    .edit-btn {
+      padding: 6px 12px;
+      font-size: 0.85rem;
+      background: #64748b;
+      color: white;
+    }
+    .edit-btn:hover { background: #475569; }
+
   </style>
 </head>
 <body>
@@ -131,7 +141,7 @@
     </div>
     <div style="overflow-x:auto;">
       <table>
-        <thead><tr><th>#</th><th>Tên Khách Hàng</th><th>SĐT</th><th>Số lần thuê</th><th>Doanh thu</th><th>Lần thuê gần nhất</th></tr></thead>
+        <thead><tr><th>#</th><th>Tên Khách Hàng</th><th>SĐT</th><th>Số lần thuê</th><th>Doanh thu</th><th>Lần thuê gần nhất</th><th>Hành động</th></tr></thead>
         <tbody id="customerBody"></tbody>
       </table>
     </div>
@@ -150,6 +160,28 @@
       </div>
     </div>
   </div>
+
+  <!-- EDIT CUSTOMER MODAL -->
+<div id="editCustomerModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10000; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:20px; width:90%; max-width:480px; box-shadow:0 20px 50px rgba(0,0,0,0.3);">
+    <div style="padding:20px 25px; border-bottom:1px solid #e2e8f0;">
+      <h3 style="margin:0; color:var(--primary);">Sửa thông tin khách hàng</h3>
+    </div>
+    <div style="padding:25px;">
+      <label style="display:block; margin-bottom:8px; font-weight:600;">Tên khách hàng</label>
+      <input type="text" id="editName" style="width:100%; margin-bottom:20px;">
+
+      <label style="display:block; margin-bottom:8px; font-weight:600;">Số điện thoại (SĐT)</label>
+      <input type="tel" id="editPhone" placeholder="Ví dụ: 0912345678" style="width:100%; margin-bottom:10px;">
+
+      <small style="color:#64748b;">Nhập SĐT để gộp với khách hàng khác nếu trùng.</small>
+    </div>
+    <div style="padding:15px 25px; text-align:right; border-top:1px solid #e2e8f0; display:flex; gap:12px; justify-content:flex-end;">
+      <button onclick="closeEditModal()" class="btn" style="background:#e2e8f0;">Hủy</button>
+      <button onclick="saveCustomerEdit()" class="btn btn-primary">Lưu thay đổi</button>
+    </div>
+  </div>
+</div>
 
   <!-- DOANH THU -->
   <div id="tab3" class="card tab-content" style="display:none;">
@@ -186,6 +218,8 @@
 const FIREBASE_URL = "https://carrent-2026-default-rtdb.asia-southeast1.firebasedatabase.app/";
 
 let contracts = [], cars = [], revenueChartInstance = null;
+
+let currentEditingKey = null;   // key cũ (phone hoặc name)
 
 // ==================== TẢI DỮ LIỆU TỪ FIREBASE ====================
 async function loadData() {
@@ -262,7 +296,7 @@ function renderDashboard() {
   `;
 }
 
-// ==================== KHÁCH HÀNG (GIỮ NGUYÊN) ====================
+// ==================== KHÁCH HÀNG ====================
 function getCustomerData(sortBy = "count") {
   const map = new Map();
   contracts.forEach(c => {
@@ -351,9 +385,14 @@ function renderCustomers() {
             onclick="showCustomerHistory('${phone || c.name}')">
           ${lastRentStr}
         </td>
+        <td>
+          <button class="edit-btn" onclick="openEditModal('${phone || c.name}', '${c.name}', '${phone}')">
+            <i class="fas fa-edit"></i> Sửa
+          </button>
+        </td>
       </tr>
     `;
-  }).join('');
+  }).join('');   // ← Phần quan trọng bị thiếu trước đó
 }
 
 // ==================== DOANH THU (ĐÃ CẬP NHẬT ĐẦY ĐỦ) ====================
@@ -672,6 +711,78 @@ function closeModal() {
 document.getElementById('historyModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
+
+// ==================== CHỈNH SỬA KHÁCH HÀNG ====================
+function openEditModal(key, name, phone) {
+  currentEditingKey = key;
+  document.getElementById('editName').value = name || '';
+  document.getElementById('editPhone').value = phone || '';
+  document.getElementById('editCustomerModal').style.display = 'flex';
+}
+
+function closeEditModal() {
+  document.getElementById('editCustomerModal').style.display = 'none';
+  currentEditingKey = null;
+}
+
+async function saveCustomerEdit() {
+  const newName = document.getElementById('editName').value.trim();
+  let newPhone = document.getElementById('editPhone').value.trim().replace(/\s+/g, '');
+
+  if (!newName) {
+    alert("Vui lòng nhập tên khách hàng!");
+    return;
+  }
+
+  // Tìm tất cả hợp đồng thuộc khách cũ
+  const affectedContracts = contracts.filter(c => 
+    (c.phone || c.customer || '').trim() === currentEditingKey
+  );
+
+  if (affectedContracts.length === 0) {
+    alert("Không tìm thấy hợp đồng nào để sửa!");
+    closeEditModal();
+    return;
+  }
+
+  // Nếu có SĐT mới → kiểm tra xem có khách nào trùng SĐT không để gộp
+  if (newPhone) {
+    const existingWithNewPhone = contracts.filter(c => 
+      c.phone === newPhone && (c.phone || c.customer || '').trim() !== currentEditingKey
+    );
+
+    if (existingWithNewPhone.length > 0) {
+      if (!confirm(`SĐT ${newPhone} đã tồn tại cho khách khác. Bạn có muốn GỘP lịch sử không?`)) {
+        closeEditModal();
+        return;
+      }
+    }
+  }
+
+  // Cập nhật tất cả hợp đồng
+  affectedContracts.forEach(c => {
+    c.customer = newName;
+    if (newPhone) c.phone = newPhone;
+  });
+
+  // Ghi lên Firebase
+  try {
+    const res = await fetch(`${FIREBASE_URL}contracts.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(contracts)
+    });
+
+    if (!res.ok) throw new Error('Không thể lưu lên Firebase');
+
+    alert('✅ Đã cập nhật thông tin khách hàng thành công!');
+    closeEditModal();
+    await loadData(); // Tải lại để refresh UI
+  } catch (e) {
+    console.error(e);
+    alert('❌ Lỗi khi lưu: ' + e.message);
+  }
+}
 
 // Khởi động
 window.onload = loadData;
