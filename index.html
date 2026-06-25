@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
   <style>
     :root { --primary: #2563eb; --success: #16a34a; --warning: #d97706; --danger: #ef4444; }
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -174,7 +176,7 @@
       <label style="display:block; margin-bottom:8px; font-weight:600;">Số điện thoại (SĐT)</label>
       <input type="tel" id="editPhone" placeholder="Ví dụ: 0912345678" style="width:100%; margin-bottom:10px;">
 
-      <small style="color:#64748b;">Thông tin khách hàng sẽ được tự động cập nhật vào hợp đồng và lịch sử.</small>
+      <small style="color:#64748b;">Nhập SĐT để gộp với khách hàng khác nếu trùng.</small>
     </div>
     <div style="padding:15px 25px; text-align:right; border-top:1px solid #e2e8f0; display:flex; gap:12px; justify-content:flex-end;">
       <button onclick="closeEditModal()" class="btn" style="background:#e2e8f0;">Hủy</button>
@@ -216,47 +218,87 @@
 <script>
 // ==================== CẤU HÌNH FIREBASE ====================
 const FIREBASE_URL = "https://carrent-2026-default-rtdb.asia-southeast1.firebasedatabase.app/";
+const firebaseConfig = {
+  databaseURL: "https://carrent-2026-default-rtdb.asia-southeast1.firebasedatabase.app/"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const dataRef = db.ref('/');
 
 let contracts = [], cars = [], revenueChartInstance = null;
 
 let currentEditingKey = null;   // key cũ (phone hoặc name)
 
 // ==================== TẢI DỮ LIỆU TỪ FIREBASE ====================
-async function loadData() {
-    const loadingHTML = `
-        <div style="text-align:center; padding:60px 20px;">
-            <i class="fas fa-spinner fa-spin" style="font-size:42px; color:#2563eb; margin-bottom:15px;"></i>
-            <h3>Đang tải dữ liệu từ Firebase...</h3>
-            <p style="color:#64748b;">Vui lòng chờ trong giây lát</p>
-        </div>
-    `;
+function loadData() {
+  const loadingHTML = `
+    <div style="text-align:center; padding:60px 20px;">
+      <i class="fas fa-spinner fa-spin" style="font-size:42px; color:#2563eb; margin-bottom:15px;"></i>
+      <h3>Đang tải dữ liệu từ Firebase...</h3>
+      <p style="color:#64748b;">Vui lòng chờ trong giây lát</p>
+    </div>
+  `;
+  document.getElementById('dashboardContent').innerHTML = loadingHTML;
 
-    document.getElementById('dashboardContent').innerHTML = loadingHTML;
+  dataRef.on('value', (snapshot) => {
+    const data = snapshot.val() || {};
+    contracts = Array.isArray(data.contracts) ? data.contracts : [];
+    cars = Array.isArray(data.cars) ? data.cars : [];
 
-    try {
-        const res = await fetch(`${FIREBASE_URL}.json`);
-        
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        
-        const data = await res.json();
-        
-        contracts = data?.contracts || [];
-        cars = data?.cars || [];
+    contracts.forEach(c => {
+      if (c.status === "Đã hoàn tất" && !c.frozenData) {
+        c.frozenData = { ...c };
+      }
+    });
 
-        console.log(`Đã tải ${contracts.length} hợp đồng và ${cars.length} xe`);
-        renderAll();
-        
-    } catch(e) {
-        console.error(e);
-        document.getElementById('dashboardContent').innerHTML = `
-            <div style="text-align:center; padding:40px; color:#ef4444;">
-                <i class="fas fa-exclamation-triangle" style="font-size:36px;"></i>
-                <h3>Lỗi kết nối Firebase</h3>
-                <p>${e.message}</p>
-                <button onclick="loadData()" class="btn btn-primary">Thử lại</button>
-            </div>
-        `;
+    console.log(`✅ Tải xong: ${contracts.length} hợp đồng, ${cars.length} xe`);
+    renderAll();
+  });
+}
+
+// ==================== HELPER: LẤY TẤT CẢ XE (bao gồm frozenData) ====================
+function getAllCars() {
+  const carMap = new Map();
+
+  // 1. Xe hiện tại từ danh sách cars
+  cars.forEach(car => {
+    if (car.plate) {
+      const plate = car.plate.toUpperCase().trim();
+      carMap.set(plate, {
+        plate: car.plate,
+        type: car.type || '—',
+        isDeleted: false
+      });
     }
+  });
+
+  // 2. Thu thập tất cả xe từ hợp đồng (bao gồm frozenData) - KHÔNG GỘP
+  contracts.forEach(c => {
+    let plate = null;
+    let type = '—';
+
+    if (c.status === "Đã hoàn tất" && c.frozenData) {
+      plate = c.frozenData.plate;
+      type = c.frozenData.carType || c.frozenData.type || '—';
+    } else {
+      plate = c.plate;
+      type = c.carType || c.type || '—';
+    }
+
+    if (plate) {
+      const key = plate.toUpperCase().trim();
+      if (!carMap.has(key)) {
+        carMap.set(key, {
+          plate: plate,
+          type: type,
+          isDeleted: !cars.some(car => car.plate && car.plate.toUpperCase().trim() === key)
+        });
+      }
+    }
+  });
+
+  return Array.from(carMap.values());
 }
 
 // ==================== DASHBOARD (ĐÃ SỬA - sắp xếp ngày tăng dần) ====================
@@ -290,7 +332,7 @@ function renderDashboard() {
       <div class="stat-card"><h3>Đang xử lý</h3><h1 style="color:#16a34a;">${activeContracts.length}</h1></div>
       <div class="stat-card"><h3>Tổng doanh thu</h3><h1 style="color:#d97706;">${totalRevenue.toLocaleString('vi-VN')} ₫</h1></div>
       <div class="stat-card"><h3>Tổng khách</h3><h1 style="color:#1e40af;">${new Set(contracts.map(c=>c.phone||c.customer)).size}</h1></div>
-      <div class="stat-card"><h3>Tổng xe</h3><h1 style="color:#7c3aed;">${cars.length}</h1></div>
+      <div class="stat-card"><h3>Tổng xe</h3><h1 style="color:#7c3aed;">${getAllCars().length}</h1></div>
     </div>
     <div style="margin-top:25px;">${activeHTML}</div>
   `;
@@ -395,7 +437,7 @@ function renderCustomers() {
   }).join('');   // ← Phần quan trọng bị thiếu trước đó
 }
 
-// ==================== DOANH THU (ĐÃ CẬP NHẬT ĐẦY ĐỦ) ====================
+// ==================== DOANH THU (ĐÃ CẬP NHẬT) ====================
 function renderRevenue() {
   const year = document.getElementById('yearFilter').value;
   const month = document.getElementById('monthFilter').value;
@@ -405,9 +447,18 @@ function renderRevenue() {
 
   if (year) filtered = filtered.filter(c => new Date(c.rentDate).getFullYear() == year);
   if (month) filtered = filtered.filter(c => (new Date(c.rentDate).getMonth() + 1) == month);
-  if (selectedCar) filtered = filtered.filter(c => c.plate === selectedCar);
+  
+  // Lọc theo xe - KHÔNG GỘP
+  if (selectedCar) {
+    filtered = filtered.filter(c => {
+      const plate = (c.status === "Đã hoàn tất" && c.frozenData) 
+                    ? (c.frozenData.plate || c.plate) 
+                    : c.plate;
+      return plate && plate.toUpperCase().trim() === selectedCar.toUpperCase().trim();
+    });
+  }
 
-  const total = filtered.reduce((sum, c) => sum + (c.frozenData?.totalAmount || 0), 0);
+  const total = filtered.reduce((sum, c) => sum + (c.frozenData?.totalAmount || c.totalAmount || 0), 0);
 
   // Biểu đồ
   if (selectedCar) {
@@ -421,29 +472,60 @@ function renderRevenue() {
   `;
 
   if (selectedCar) {
-    html += `<h4>Chi tiết xe ${selectedCar}</h4>`;
+    const carInfo = getAllCars().find(c => c.plate.toUpperCase().trim() === selectedCar.toUpperCase().trim());
+    const note = carInfo && carInfo.isDeleted ? ` <span style="color:#ef4444;">(xe đã xoá)</span>` : '';
+    
+    html += `<h4>Chi tiết xe ${selectedCar}${note}</h4>`;
     html += `<table><thead><tr><th>Ngày</th><th>Khách hàng</th><th>Loại xe</th><th>Số tiền</th></tr></thead><tbody>`;
+    
     filtered.sort((a,b) => new Date(b.rentDate) - new Date(a.rentDate)).forEach(c => {
+      const data = (c.status === "Đã hoàn tất" && c.frozenData) ? c.frozenData : c;
+      const amount = c.frozenData?.totalAmount || c.totalAmount || 0;
+      
       html += `<tr>
         <td>${new Date(c.rentDate).toLocaleDateString('vi-VN')}</td>
         <td>${c.customer || '—'}</td>
-        <td>${c.carType || c.type || '—'}</td>
-        <td style="color:#16a34a;font-weight:700;">${(c.frozenData?.totalAmount||0).toLocaleString('vi-VN')} ₫</td>
+        <td>${data.carType || data.type || '—'}</td>
+        <td style="color:#16a34a;font-weight:700;">${amount.toLocaleString('vi-VN')} ₫</td>
       </tr>`;
     });
   } else {
     html += `<h4>Doanh thu theo xe</h4>`;
-    html += `<table><thead><tr><th>Biển số xe</th><th>Loại xe</th><th>Doanh thu</th></tr></thead><tbody>`;
+    html += `<table><thead><tr><th>Biển số xe</th><th>Loại xe</th><th>Doanh thu</th><th>Ghi chú</th></tr></thead><tbody>`;
+    
     const byCar = {};
     filtered.forEach(c => {
-      const plate = c.plate || 'Không rõ';
-      if (!byCar[plate]) byCar[plate] = {revenue: 0, type: c.carType || c.type || '—'};
-      byCar[plate].revenue += (c.frozenData?.totalAmount || 0);
+      const plate = (c.status === "Đã hoàn tất" && c.frozenData) 
+                    ? (c.frozenData.plate || c.plate) 
+                    : c.plate;
+      
+      if (!plate) return;
+      
+      const key = plate.toUpperCase().trim();
+      if (!byCar[key]) {
+        byCar[key] = { 
+          plate: plate,
+          revenue: 0, 
+          type: (c.frozenData?.carType || c.carType || c.type || '—'),
+          isDeleted: !cars.some(car => car.plate && car.plate.toUpperCase().trim() === key)
+        };
+      }
+      byCar[key].revenue += (c.frozenData?.totalAmount || c.totalAmount || 0);
     });
-    Object.entries(byCar).sort((a,b) => b[1].revenue - a[1].revenue).forEach(([plate, data]) => {
-      html += `<tr><td><strong>${plate}</strong></td><td>${data.type}</td><td style="color:#16a34a;font-weight:700;">${data.revenue.toLocaleString('vi-VN')} ₫</td></tr>`;
-    });
+
+    Object.values(byCar)
+      .sort((a,b) => b.revenue - a.revenue)
+      .forEach(data => {
+        const note = data.isDeleted ? `<span style="color:#ef4444;">(xe đã xoá)</span>` : '';
+        html += `<tr>
+          <td><strong>${data.plate}</strong></td>
+          <td>${data.type}</td>
+          <td style="color:#16a34a;font-weight:700;">${data.revenue.toLocaleString('vi-VN')} ₫</td>
+          <td>${note}</td>
+        </tr>`;
+      });
   }
+  
   html += `</tbody></table>`;
   document.getElementById('revenueContent').innerHTML = html;
 }
@@ -484,7 +566,7 @@ function renderRevenueChartByCar(filtered, car) {
   const byMonth = Array(12).fill(0);
   filtered.forEach(c => {
     const m = new Date(c.rentDate).getMonth();
-    byMonth[m] += c.frozenData?.totalAmount || 0;
+    byMonth[m] += c.frozenData?.totalAmount || c.totalAmount || 0;
   });
 
   revenueChartInstance = new Chart(document.getElementById('revenueChart'), {
@@ -510,8 +592,7 @@ function renderRevenueChartByCar(filtered, car) {
   });
 }
 
-// ==================== LỊCH XE ====================
-<!-- ==================== LỊCH XE (ĐÃ SỬA - hỗ trợ nhiều ngày) ==================== -->
+//<!-- ==================== LỊCH XE (ĐÃ SỬA - hỗ trợ nhiều ngày) ==================== -->//
 function renderSchedule() {
   const activeContracts = contracts.filter(c => c.status !== "Đã hoàn tất" && c.rentDate);
 
@@ -578,27 +659,51 @@ function renderSchedule() {
 
 // ==================== DANH SÁCH XE ====================
 function renderCars() {
-  let html = `<table><thead><tr><th>Loại xe</th><th>Biển số</th><th>Số lần thuê</th></tr></thead><tbody>`;
-  cars.forEach(car => {
-    const count = contracts.filter(c => c.plate === car.plate).length;
-    html += `<tr><td>${car.type || '—'}</td><td><strong>${car.plate}</strong></td><td>${count}</td></tr>`;
+  const allCars = getAllCars();
+  
+  let html = `
+    <table>
+      <thead>
+        <tr>
+          <th>Loại xe</th>
+          <th>Biển số</th>
+          <th>Số lần thuê</th>
+          <th>Ghi chú</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  allCars.forEach(car => {
+    // Đếm theo đúng biển số (không gộp)
+    const count = contracts.filter(c => {
+      const contractPlate = 
+        (c.status === "Đã hoàn tất" && c.frozenData) 
+          ? (c.frozenData.plate || c.plate) 
+          : c.plate;
+      return contractPlate && contractPlate.toUpperCase().trim() === car.plate.toUpperCase().trim();
+    }).length;
+
+    const note = car.isDeleted 
+      ? `<span style="color:#ef4444; font-weight:600;">(xe đã xoá)</span>` 
+      : '';
+
+    html += `
+      <tr>
+        <td>${car.type}</td>
+        <td><strong>${car.plate}</strong></td>
+        <td style="text-align:center; font-weight:700;">${count}</td>
+        <td>${note}</td>
+      </tr>`;
   });
+
   html += `</tbody></table>`;
+
+  if (allCars.length === 0) {
+    html = `<p style="color:#64748b; text-align:center; padding:40px;">Chưa có dữ liệu xe.</p>`;
+  }
+
   document.getElementById('carContent').innerHTML = html;
 }
-
-// ==================== TẠO TABS ====================
-const tabNames = [
-  {id:1, icon:"fas fa-tachometer-alt", name:"Dashboard"},
-  {id:2, icon:"fas fa-users", name:"Khách Hàng"},
-  {id:3, icon:"fas fa-chart-bar", name:"Doanh Thu"},
-  {id:4, icon:"fas fa-calendar-alt", name:"Lịch Xe"},
-  {id:5, icon:"fas fa-car-side", name:"Xe"}
-];
-
-document.getElementById('tabs').innerHTML = tabNames.map(t => 
-  `<div class="tab ${t.id===1?'active':''}" onclick="switchTab(${t.id})"><i class="${t.icon}"></i> ${t.name}</div>`
-).join('');
 
 function switchTab(n) {
   document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
@@ -607,13 +712,14 @@ function switchTab(n) {
 }
 
 function renderAll() {
+  createTabs();                    // Đặt lên đầu tiên
   renderDashboard();
   renderCustomers();
   renderRevenue();
   renderSchedule();
   renderCars();
 
-  // Populate year filter
+  // Populate filters
   const years = [...new Set(contracts
     .filter(c => c.rentDate)
     .map(c => new Date(c.rentDate).getFullYear())
@@ -623,7 +729,6 @@ function renderAll() {
   yearSelect.innerHTML = `<option value="">Tất cả năm</option>` + 
     years.map(y => `<option value="${y}">${y}</option>`).join('');
 
-  // Populate months
   const monthSelect = document.getElementById('monthFilter');
   monthSelect.innerHTML = `<option value="">Tất cả tháng</option>` +
     Array.from({length:12}, (_,i) => {
@@ -631,10 +736,24 @@ function renderAll() {
       return `<option value="${m}">${m.toString().padStart(2,'0')}</option>`;
     }).join('');
 
-  // Populate car filter
   const carSelect = document.getElementById('carFilter');
+  const allCars = getAllCars();
   carSelect.innerHTML = `<option value="">Tất cả xe</option>` +
-    cars.map(car => `<option value="${car.plate}">${car.plate} - ${car.type || ''}</option>`).join('');
+    allCars.map(car => {
+      const note = car.isDeleted ? ' (xe đã xoá)' : '';
+      return `<option value="${car.plate}">${car.plate} - ${car.type}${note}</option>`;
+    }).join('');
+}
+
+function createTabs() {
+  const tabsContainer = document.getElementById('tabs');
+  tabsContainer.innerHTML = `
+    <div class="tab active" onclick="switchTab(1)"><i class="fas fa-tachometer-alt"></i> Dashboard</div>
+    <div class="tab" onclick="switchTab(2)"><i class="fas fa-users"></i> Khách Hàng</div>
+    <div class="tab" onclick="switchTab(3)"><i class="fas fa-chart-bar"></i> Doanh Thu</div>
+    <div class="tab" onclick="switchTab(4)"><i class="fas fa-calendar-alt"></i> Lịch Xe</div>
+    <div class="tab" onclick="switchTab(5)"><i class="fas fa-car-side"></i> Danh Sách Xe</div>
+  `;
 }
 
 // ==================== XUẤT EXCEL ====================
@@ -707,7 +826,7 @@ function showCustomerHistory(key) {
 
   customerContracts.forEach(c => {
     const data = (c.status === "Đã hoàn tất" && c.frozenData) ? c.frozenData : c;
-    const amount = data.totalAmount || data.frozenData?.totalAmount || 0;
+    const amount = (data.totalAmount || data.frozenData?.totalAmount || 0);
 
     // === HIỂN THỊ NGÀY THUÊ - NGÀY TRẢ (>= 2 ngày) ===
     let dateDisplay = '—';
@@ -834,8 +953,10 @@ async function saveCustomerEdit() {
 }
 
 // Khởi động
-window.onload = loadData;
-document.getElementById('searchInput').addEventListener('input', renderCustomers);
+window.onload = () => {
+  loadData();
+  document.getElementById('searchInput').addEventListener('input', renderCustomers);
+};
 </script>
 </body>
 </html>
