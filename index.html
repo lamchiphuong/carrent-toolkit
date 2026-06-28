@@ -96,16 +96,18 @@
       }
     }
 
-    #revenueChart { margin: 25px 0 30px 0; }
-
-        /* style nút sửa khách hàng */
-    .edit-btn {
-      padding: 6px 12px;
-      font-size: 0.85rem;
-      background: #64748b;
-      color: white;
+    #revenueChart { 
+        margin: 20px 0 25px 0; 
+        max-height: 320px;           /* Giảm ~15% so với trước */
+        width: 100% !important;
     }
-    .edit-btn:hover { background: #475569; }
+
+    /* Tối ưu cho desktop */
+    @media (min-width: 769px) {
+        #revenueChart {
+            max-height: 280px;       /* Nhỏ hơn một chút trên màn hình lớn */
+        }
+    }
 
   </style>
 </head>
@@ -176,7 +178,7 @@
       <label style="display:block; margin-bottom:8px; font-weight:600;">Số điện thoại (SĐT)</label>
       <input type="tel" id="editPhone" placeholder="Ví dụ: 0912345678" style="width:100%; margin-bottom:10px;">
 
-      <small style="color:#64748b;">Số điện thoại sẽ tự động cập nhật cho tất cả hợp đồng.</small>
+      <small style="color:#64748b;">Nhập SĐT để gộp với khách hàng khác nếu trùng.</small>
     </div>
     <div style="padding:15px 25px; text-align:right; border-top:1px solid #e2e8f0; display:flex; gap:12px; justify-content:flex-end;">
       <button onclick="closeEditModal()" class="btn" style="background:#e2e8f0;">Hủy</button>
@@ -198,7 +200,7 @@
       </select>
       <button onclick="renderRevenue()" class="btn btn-primary">Xem</button>
     </div>
-    <canvas id="revenueChart" height="130"></canvas>
+    <canvas id="revenueChart" height="110"></canvas>
     <div id="revenueContent"></div>
   </div>
 
